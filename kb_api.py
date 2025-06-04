@@ -59,6 +59,8 @@ from fastapi.responses import HTMLResponse, Response
 import io, base64
 from PIL import Image
 
+from document_parser import magic_perform_parse
+
 EMBEDDING_MODEL = "e5_large_v2"
 user_settings = {}
 
@@ -1562,7 +1564,8 @@ def upload_docs(files: List[UploadFile] = File(..., description="上传文件，
                     config.CHUNK_OVERLAP, description="知识库中相邻文本重合长度"),
                 ocr_lang: str = Form('en',
                                      description="if having images, use this to define language in the image,eg. `ch`, `en`, `fr`, `german`, `korean`, `japan`"),
-                multivector: str = Form('', description="e.g. [ summary] ", examples=['summary'])
+                multivector: str = Form('', description="e.g. [ summary] ", examples=['summary']),
+                file_parser_method: str = Form('textsplit', description="文件解析方法", examples=['textsplit'])
                 ) -> BaseResponse:
     '''
     API接口：上传文件，并/或向量化
@@ -1599,8 +1602,13 @@ def upload_docs(files: List[UploadFile] = File(..., description="上传文件，
                                            kb_name=knowledge_base_name,
                                            chunk_size=chunk_size,
                                            chunk_overlap=chunk_overlap)
-            text_splitter = makeSplitter(chunk_size, chunk_overlap)
-            chunkDocuments = kb_file.file2text(text_splitter, ocr_lang)
+            if file_parser_method == 'textsplit' :
+                text_splitter = makeSplitter(chunk_size, chunk_overlap)
+                chunkDocuments = kb_file.file2text(text_splitter, ocr_lang)
+
+            elif file_parser_method == 'magic_pdf':
+                chunkDocuments = magic_perform_parse(knowledge_base_name, kb_file.filepath, kb_file.filename)
+
             if 'summary' in multivector:
                 chunkDocuments = add_summaries_to_langchain_documents(chunkDocuments)
 

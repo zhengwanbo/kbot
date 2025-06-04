@@ -199,9 +199,9 @@ class ClientManager:
     _instances: dict[str, Any] = {"db": None, "ref_count": 0}
     _lock = asyncio.Lock()
 
-    def get_config() -> dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         config = configparser.ConfigParser()
-        config.read("config.ini", "utf-8")
+        config.read("lightrag.conf", "utf-8")
 
         logger.info("get OracleDB database config")
         return {
@@ -1637,7 +1637,7 @@ SQL_TEMPLATES = {
         WHERE a.workspace=:workspace and a.workspace=:workspace and b.workspace=:workspace
         AND a.name=:node_id or b.name = :node_id
         COLUMNS (a.name))""",
-    "get_node": """SELECT t1.name,t2.entity_type,t2.source_chunk_id as source_id,NVL(t2.description,'') AS description
+    "get_node": """SELECT t1.name,t2.entity_type,t2.source_chunk_id as source_id,NVL(t2.description,'') AS description, t2.file_path
         FROM GRAPH_TABLE (lightrag_graph
         MATCH (a)
         WHERE a.workspace=:workspace AND a.name=:node_id
@@ -1645,7 +1645,7 @@ SQL_TEMPLATES = {
         ) t1 JOIN LIGHTRAG_GRAPH_NODES t2 on t1.name=t2.name
         WHERE t2.workspace=:workspace""",
     "get_edge": """SELECT t1.source_id,t2.weight,t2.source_chunk_id as source_id,t2.keywords,
-        NVL(t2.description,'') AS description,NVL(t2.KEYWORDS,'') AS keywords
+        NVL(t2.description,'') AS description,NVL(t2.KEYWORDS,'') AS keywords, t2.file_path
         FROM GRAPH_TABLE (lightrag_graph
         MATCH (a)-[e]->(b)
         WHERE e.workspace=:workspace and a.workspace=:workspace and b.workspace=:workspace

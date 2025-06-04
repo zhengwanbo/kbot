@@ -106,7 +106,6 @@ def check_if_init(knowledge_base_name: str = Body(..., examples=["samples"])):
         return False
 async def lightragInit(knowledge_base_name: str = Body(..., examples=["samples"]),
                  stub: str = Body('stub', examples=["no need to input"])):
-
     kbPath = util.get_kb_path(knowledge_base_name)
     lightrag_root_path = Path(kbPath) / 'lightrag'
     graphrag_input_path = lightrag_root_path / "input"
@@ -115,8 +114,20 @@ async def lightragInit(knowledge_base_name: str = Body(..., examples=["samples"]
     cmd = [f"cp", "lightrag.env", str(lightrag_root_path)]
     print(f"##lightrag init cmd: {cmd}")
     task = asyncio.create_task(run_cmd(cmd))
-    env_path = graphrag_input_path/'lightrag.env'
+
+    env_path = lightrag_root_path/'lightrag.env'
+    # 验证文件存在
+    if not env_path.exists():
+        raise FileNotFoundError(f"env文件未生成: {env_path}")
+
     load_dotenv(env_path)
+
+    # 测试获取环境变量
+    api_key = os.getenv("API_KEY")
+    if api_key:
+        print(f"成功加载API_KEY: {api_key}")
+    else:
+        print("未获取到API_KEY，检查env文件内容")
 
     args = parse_args()
     logger.info("读取的 config.ini 内容：")
@@ -143,10 +154,10 @@ async def initialize_rag(knowledge_base_name, args):
         raise Exception(f"embedding binding {args.embedding_binding} not supported")
 
     # Set default hosts if not provided
-    if args.llm_binding_host is None:
-        args.llm_binding_host = get_default_host(args.llm_binding)
-    if args.embedding_binding_host is None:
-        args.embedding_binding_host = get_default_host(args.embedding_binding)
+    #if args.llm_binding_host is None:
+    #    args.llm_binding_host = get_default_host(args.llm_binding)
+    #if args.embedding_binding_host is None:
+    #    args.embedding_binding_host = get_default_host(args.embedding_binding_host)
 
     # Create working directory if it doesn't exist
     Path(args.working_dir).mkdir(parents=True, exist_ok=True)
@@ -231,7 +242,8 @@ async def initialize_rag(knowledge_base_name, args):
         if args.embedding_binding == "ollama"
         else azure_openai_embed(
             texts,
-            model=args.embedding_model,  # no host is used for openai,
+            model=args.embedding_model,
+            base_url=args.embedding_binding_host,
             api_key=args.embedding_binding_api_key,
         )
         if args.embedding_binding == "azure_openai"
@@ -334,8 +346,6 @@ async def lightragConfig(knowledge_base_name: str = Body(..., examples=["samples
 
     env_path = graphrag_root_path/'lightrag.env'
     load_dotenv(env_path)
-    args = parse_args()
-    args.working_dir = graphrag_root_path
 
     if llm_endpoint:
         os.environ["LLM_BINDING_HOST"] = llm_endpoint
@@ -345,12 +355,14 @@ async def lightragConfig(knowledge_base_name: str = Body(..., examples=["samples
         os.environ["LLM_BINDING_API_KEY"] = llm_api_key
 
     if embedding_endpoint:
-        os.environ["LLM_BINDING_HOST"] = embedding_endpoint
+        os.environ["EMBEDDING_BINDING_HOST"] = embedding_endpoint
     if embedding_model:
         os.environ["EMBEDDING_MODEL"] = embedding_model
     if embedding_api_key:
         os.environ["EMBEDDING_BINDING_API_KEY"] = knowledge_base_name
 
+    args = parse_args()
+    args.working_dir = graphrag_root_path
     display_splash_screen(args)
     logger.info(f"LightRAG initialed......")
 
@@ -513,15 +525,19 @@ async def lightragLocalSearch(knowledge_base_name: str = Body(..., examples=["sa
 
         # 执行查询
         result = await rag.aquery(question, param=query_param)
-        
+
+        return BaseResponse(
+            code=200,
+            data=f"{result}",
+            msg="Search completed successfully"
+        )
+
     except Exception as e:
-        raise BaseResponse(code=500, detail=str(e))
+        logger.error(f"Error in lightragLocalSearch: {str(e)}")
         return BaseResponse(
             code=500,
             msg=f"Failed to lightrag Local Search status: {str(e)}"
         )
-
-    return BaseResponse(code=200, data=f"{result}")
 
 async def lightragGlobalSearch(knowledge_base_name: str = Body(..., examples=["samples"]),
                            question: str = Body('question'),
@@ -545,14 +561,19 @@ async def lightragGlobalSearch(knowledge_base_name: str = Body(..., examples=["s
             question,
             param=QueryParam(mode="global",top_k=10),
         )
-    except Exception as e:
 
         return BaseResponse(
-            code=500,
-            msg=f"Failed to lightrag Global Search status: {str(e)}"
+            code=200,
+            data=f"{result}",
+            msg="Search completed successfully"
         )
 
-    return BaseResponse(code=200, data=f"{result}")
+    except Exception as e:
+        logger.error(f"Error in lightragLocalSearch: {str(e)}")
+        return BaseResponse(
+            code=500,
+            msg=f"Failed to lightrag Local Search status: {str(e)}"
+        )
 
 async def lightragHybridSearch(knowledge_base_name: str = Body(..., examples=["samples"]),
                            question: str = Body('question'),
@@ -576,13 +597,18 @@ async def lightragHybridSearch(knowledge_base_name: str = Body(..., examples=["s
             question,
             param=QueryParam(mode="hybrid"),
         )
-    except Exception as e:
         return BaseResponse(
-            code=500,
-            msg=f"Failed to lightrag Hybrid Search status: {str(e)}"
+            code=200,
+            data=f"{result}",
+            msg="Search completed successfully"
         )
 
-    return BaseResponse(code=200, data=f"{result}")
+    except Exception as e:
+        logger.error(f"Error in lightragLocalSearch: {str(e)}")
+        return BaseResponse(
+            code=500,
+            msg=f"Failed to lightrag Local Search status: {str(e)}"
+        )
 
 async def lightragQueryGraphNode(knowledge_base_name: str = Body(..., examples=["samples"]),
                            model_name: str = Body('qwen2.5'),
