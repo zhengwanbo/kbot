@@ -46,6 +46,8 @@ from vectorDB.oracle_ai_vector_search import OracleAIVector
 from vectorDB.heatwave_vectorstore import HeatWaveVS
 from vectorDB.oracle_vectorstore_adb import OracleAdbVS
 from vectorDB.oracle_vectorstore_basedb import OracleBaseDbVS
+import kbot_lightrag
+
 from util import get_content_root, get_file_path, get_kb_path, get_vs_path, makeSplitter, AskResponseData, \
     get_url_subpath, \
     get_uploaded_file_subpath, delete_folder, write_object, doc_clean, ociSpeechASRLoader, \
@@ -133,6 +135,8 @@ summarize_chain = (
         | summary_model
         | StrOutputParser()  # Extracts the response as text
 )
+from langchain_community.document_loaders import UnstructuredHTMLLoader
+
 
 
 class KnowledgeFile:
@@ -201,6 +205,8 @@ class KnowledgeFile:
         elif filepath.lower().endswith(".wav"):
             loader = ociSpeechASRLoader(
                 self.namespace, self.bucket, self.objectName, self.lang)
+        elif filepath.lower().endswith(".html"):
+            loader= UnstructuredHTMLLoader(filepath)
         elif loader_name == 'ImageOCRLoader':
             loader = ppOCR(file_path=self.filepath)
         else:
@@ -874,6 +880,13 @@ def init_vs(knowledge_base_name, embed_model, vector_store_type):
             collection_name=knowledge_base_name,
             pre_delete_collection=False,
             embedding_function=embeddingModel
+        )
+    elif vector_store_type == 'opensearch':
+       vector_store = OpenSearchVectorSearch(
+            index_name=knowledge_base_name,
+            embedding_function=embeddingModel,
+            opensearch_url=config.OCI_OPEN_SEARCH_URL,
+            http_auth=(config.OCI_OPEN_SEARCH_USER, config.OCI_OPEN_SEARCH_PASSWD)
         )
     else:
         raise ValueError("invalid vector db type")
@@ -1804,17 +1817,16 @@ def delete_kb(knowledge_base_name: str = Body(..., examples=["samples"]),
     # delete vectors and file record in sqlite
     delete_docs(knowledge_base_name, files)
     delete_vs(knowledge_base_name)
-    # if 'oracle' == kb.vs_type:
-    #    vs.delete_collection()
+    kbot_lightrag.lightragDeleteKB(knowledge_base_name=knowledge_base_name)
     if delete_kb_from_db(knowledge_base_name=knowledge_base_name):
         kbPath = get_kb_path(knowledge_base_name)
         delete_folder(kbPath)
         batchInfo = KnowledgeBatchInfo(kb_name=knowledge_base_name)
         delete_allbatchInfo_in_one_kb(batchInfo)
 
-        return BaseResponse(code=200, msg="删除成功")
+        return BaseResponse(code=200, msg="Deletion Done")
     else:
-        return BaseResponse(code=404, msg="删除失败")
+        return BaseResponse(code=503, msg="Deletion Failed")
 
 
 def copy_to_dest_dir(src_dir, dest_dir):
@@ -2043,8 +2055,9 @@ def makeSimilarDocs(question, kb_name, user):
         doc_source_file_ext = get_file_extension(doc_source)
         if isinstance(doc_source_file_ext, str) and len(doc_source_file_ext) > 0 and doc_source_file_ext in (
         'pdf', 'doc', 'docx'):
-            if isinstance(doc.metadata.get("page_number"), int):
-                doc_page_num = int(doc.metadata.get("page_number"))
+            page_number = doc.metadata.get("page_number")
+            if page_number is not None:
+                doc_page_num = page_number
         doc_score = obj[1]
         logger.info(
             f"  doc_score: {doc_score}, score_threshold: {settings.score_threshold}, doc_source: {doc_source}, doc_source_file_ext:{doc_source_file_ext},doc_page_num:{doc_page_num}")
@@ -2082,10 +2095,15 @@ def reRankVectorResult(query: str, vectorResut: List[Document], user: str) -> Li
         bge_reranker = load_bge_reranker(config.BGE_RERANKER)
         reRankResult = reRankVectorResultByBgeReranker(bge_reranker, query, vectorResut,
                                                        top_k)
+    elif settings.rerankerModel == 'jinaReranker':
+        jina_reranker_model = llm_models.load_jina_reranker(config.JINA_RERANKER)
+        reRankResult = reRankeVectorResultByJinaReranker(jina_reranker_model,query, vectorResut, top_k)
+
     elif settings.rerankerModel == 'cohereReranker':
         reRankResult = reRankVectorResultByCohere(query, vectorResut, top_k)
     elif settings.rerankerModel == 'ociCohereReranker':
         reRankResult = reRankVectorResultByOCICohere(query, vectorResut, top_k)
+
     elif settings.rerankerModel == 'disableReranker':
         reRankResult = vectorResut
     return reRankResult
@@ -2113,7 +2131,18 @@ def reRankVectorResultByCohere(query: str, vectorResut: List[Document], top_k: i
             (Document(page_content=r.document.text, metadata=vectorResut[r.index][0].metadata), r.relevance_score))
     return reRankResult
 
+def reRankeVectorResultByJinaReranker(rerankerModel, query: str, vectorResult: List[Document], top_k: int = 3) -> List[Document]:
+    sentence_pairs = [[query, extract_doc(obj).page_content] for obj in vectorResult]
 
+    # Execute Rerank
+    scores = rerankerModel.compute_score(sentence_pairs, max_length=1024)
+
+    # Get and sort Rerank results, returning only top_k results
+    reRankResult = sorted(
+        ((extract_doc(obj), score) for obj, score in zip(vectorResult, scores)),
+        key=lambda item: item[1],
+        reverse=True)[:top_k]
+    return reRankResult
 def reRankVectorResultByOCICohere(query: str, vectorResut: List[Document], top_k: int = 3) -> List[Document]:
     src_docs = []
     for obj in vectorResut:

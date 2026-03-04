@@ -19,6 +19,10 @@ from config import config
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 bgeRerankerModel = None
+from transformers import AutoModelForSequenceClassification
+jinaRerankerModel =None
+
+
 
 
 @lazy_func
@@ -30,6 +34,22 @@ def load_bge_reranker(model_name_or_path):
         bgeRerankerModel = FlagReranker(model_name_or_path,
                                         use_fp16=True)  # Setting use_fp16 to True speeds up computation with a slight performance degradation
         return bgeRerankerModel
+
+@lazy_func
+def load_jina_reranker(model_name_or_path):
+    global jinaRerankerModel
+    if jinaRerankerModel:
+        return jinaRerankerModel
+    else:
+        jinaRerankerModel = AutoModelForSequenceClassification.from_pretrained(
+            model_name_or_path,
+            torch_dtype="auto",
+            trust_remote_code=True,
+        )
+
+        jinaRerankerModel.to(device)  # or 'cpu' if no GPU is available
+        jinaRerankerModel.eval()
+        return jinaRerankerModel
 
 
 @lazy_func
@@ -47,12 +67,15 @@ def load_llm_model(model_id_or_path: str = "") -> LLM:
 MODEL_DICT = {
     'NoneLLM': 'NoneLLM',
     ######################      API models        #############################################
-    # 'OCI-cohere.command-r-16k': ociGenAIAPI.ociCMDR,
-    # 'OCI-cohere.command-r-plus': ociCMDRPlus,
-    'OCI-cohere.command-r-plus082024': ociGenAIAPI.ociCMDRPlus082024,
-    'OCI-cohere.command-r082024': ociGenAIAPI.ociCMDR082024,
+    'OCI-cohere.command-a-03-2025': ociGenAIAPI.ociCMDA032025,
+    'OCI-cohere.command-r-plus-08-2024': ociGenAIAPI.ociCMDRPlus082024,
+    'OCI-cohere.command-r-08-2024': ociGenAIAPI.ociCMDR082024,
     'OCI-meta.llama-3.1-70b-instruct': ociGenAIAPI.ociGenAILlama3_1_70B,
     'OCI-meta.llama-3.1-405b-instruct': ociGenAIAPI.ociGenAILlama3_1_405B,
+    'OCI-meta.llama-3.2-90b-vision-instruct': ociGenAIAPI.ociGenAILlama3_2_90b,
+    'OCI-meta.llama-3.3-70b-instruct': ociGenAIAPI.ociGenAILlama3_3_70b,
+    'OCI-meta.llama-4-marverick-17b': ociGenAIAPI.ociGenAILlama4_maverick_17b,
+    'OCI-meta.llama-4-scout-17b': ociGenAIAPI.ociGenAILlama4_scout_17b,
     'Qwen2-7B-Instruct': remoteModel('Qwen2-7B-Instruct', 'http://146.235.226.110:8098/v1', '123456', 512, 0),
     'Qwen2-7B-Instruct_Https': remoteModel('Qwen2-7B-Instruct', 'https://chat.oracle.k8scloud.site:8098/v1', '123456',
                                            512, 0),
@@ -64,12 +87,12 @@ MODEL_DICT = {
     'mistral-aqua': AIQuickActions(
         endpoint='https://modeldeployment.us-sanjose-1.oci.customer-oci.com/ocid1.datasciencemodeldeployment.oc1.us-sanjose-1.amaaaaaaak7gbriae3l7phztdfyhlwjqjgkfcqxwhu62gs5vur4sqryi5nvq'),
     '星火大模型3.0': sparkAPI.SparkLLM(),
-    'ChatGLM4': glm4API.GLM4(),
+    'ChatGLM4': glm4API.glm4,
     'ChatGPT': chatgptAPI.gpt3,
-    'Qwen-plus': QwenPlus(),
+    'Qwen-plus': QwenPlus(model_name="qwen-plus"),
+    #'Qwen-plus': remoteModel('qwen-plus', 'https://dashscope.aliyuncs.com/compatible-mode/v1', config.qwen_api_key, 512, 0),
     'DeepSeek_V3': remoteModel('deepseek-chat', 'https://api.deepseek.com/v1', config.deepseek_api_key, 512, 0),
     'DeepSeek_R1': remoteModel('deepseek-reasoner', 'https://api.deepseek.com/v1', config.deepseek_api_key, 512, 0),
-    # 'Cohere-CommandR+': cohereAPI.commandRPlus(),
     'ERNIE-4.0-8K-Latest': qianfanAPI.qianfanLLM('ERNIE-4.0-8K-Latest'),
     ######################      local models      ###########################################
     ###   format 1) : local path

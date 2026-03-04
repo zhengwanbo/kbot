@@ -14,8 +14,6 @@ To help customers leverage services in OCI easier.
 
 ## Features
 
-
-
 ### llm management and openai format compatible API 
 
 ### text embedding and openai format compatible API 
@@ -202,3 +200,5 @@ fastapi run main.py --root-path   /api/v1  --port 8093
 
 contact me or any other oracle staffs
 jingsong.liu@oracle.com
+zhongfan.zou@oracle.com
+
